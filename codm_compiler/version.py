@@ -1,4 +1,4 @@
-VERSION = '008'
+VERSION = '009'
 APP_NAME = f'CODM-2M-v{VERSION}'
 
 

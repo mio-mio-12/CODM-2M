@@ -1,5 +1,6 @@
 """Dear ImGui frontend. Heavy tasks run in disposable, hidden worker processes."""
 import json
+import configparser
 import os
 from pathlib import Path
 import subprocess
@@ -16,7 +17,14 @@ class BrowserState:
     def __init__(self,base=None):
         self.base=Path(base) if base else Path(sys.executable).parent if getattr(sys,'frozen',False) else Path(__file__).resolve().parents[1]
         self.cache=self.base/'catalog.json';self.previews=self.base/'map_previews'
-        self.source=r'F:\CODMGameApps';self.output=str(self.base/'exports')
+        self.settings=self.base/'settings.ini'
+        self.source='';self.output=str(self.base/'exports')
+        try:
+            settings=configparser.ConfigParser(interpolation=None)
+            settings.read(self.settings,encoding='utf-8')
+            saved=settings.get('paths','codm_directory',fallback='').strip()
+            if saved and Path(saved).is_dir():self.source=saved
+        except (OSError,configparser.Error,UnicodeError):pass
         self.catalog=None;self.entries=[];self.pictures=[];self.matches={};self.selected=set();self.variant=0
         self.query='';self.category=0;self.advanced=False;self.geometry=True;self.c2m=True;self.glb=True
         self.spawns=True;self.volumes=True;self.tactical=True;self.inactive=False;self.quality=2;self.baking=0
@@ -29,7 +37,9 @@ class BrowserState:
 
     def load_cache(self):
         try:
-            self.catalog=json.loads(self.cache.read_text(encoding='utf-8'));self.source=self.catalog['root']
+            self.catalog=json.loads(self.cache.read_text(encoding='utf-8'))
+            if not self.source or Path(self.catalog['root']).resolve()!=Path(self.source).resolve():
+                self.catalog=None;self.entries=[];return
             cached=cached_previews(self.catalog,self.previews)
             self.pictures=cached['images'] if cached else [];self.refresh()
         except (OSError,ValueError,KeyError):self.catalog=None;self.entries=[]
@@ -72,7 +82,25 @@ class BrowserState:
         self.error='';self.counts={}
 
     def scan(self):
+        if not self.source or not Path(self.source).is_dir():
+            self.error='Select a CODM directory';return
         self.start({'kind':'scan','source':self.source,'catalog':str(self.cache.resolve()),'previews':str(self.previews.resolve())})
+
+    def set_source(self,value):
+        path=Path(value).expanduser().resolve()
+        if not path.is_dir():raise ValueError('Select an existing directory')
+        settings=configparser.ConfigParser(interpolation=None)
+        try:settings.read(self.settings,encoding='utf-8')
+        except (configparser.Error,UnicodeError):settings=configparser.ConfigParser(interpolation=None)
+        if not settings.has_section('paths'):settings.add_section('paths')
+        settings.set('paths','codm_directory',str(path))
+        pending=self.settings.with_suffix('.ini.tmp')
+        with pending.open('w',encoding='utf-8') as f:settings.write(f)
+        pending.replace(self.settings)
+        self.source=str(path);self.catalog=None;self.entries=[];self.pictures=[];self.matches={};self.selected.clear()
+        self.zone_index=None;self.zone_open=False;self.worlds={}
+        self.load_cache()
+        if self.catalog is None:self.scan()
 
     def export(self):
         if not self.can_export():return
@@ -177,7 +205,11 @@ class BrowserState:
                     write_json(self.zone_out/'zone.json',self.zone_manifest);self.next_zone_chunk()
         if self.dialog and self.dialog.ready(0):
             result=self.dialog.result()
-            if result:setattr(self,self.dialog_field,result)
+            if result:
+                try:
+                    if self.dialog_field=='source':self.set_source(result)
+                    else:setattr(self,self.dialog_field,result)
+                except Exception as e:self.error=str(e)
             self.dialog=None
 
     def cancel(self):
@@ -217,6 +249,9 @@ def launch(base=None,test_frames=0,screenshot=None):
     def init():
         imgui.style_colors_dark();s=imgui.get_style();s.window_padding=(12,12);s.frame_padding=(8,6)
         s.item_spacing=(10,8);s.frame_rounding=3;s.child_rounding=3
+        if not state.source and not test_frames:
+            state.dialog=pfd.select_folder('CODM directory','');state.dialog_field='source'
+        elif state.source and state.catalog is None and not test_frames:state.scan()
     def photo(entry,size):
         picture=state.matches.get(entry['id'])
         if picture and (state.previews/picture['file']).is_file():
@@ -289,7 +324,14 @@ def launch(base=None,test_frames=0,screenshot=None):
         nonlocal frames
         state.poll();frames+=1
         imgui.begin_disabled(state.process is not None)
-        for label,field in [('Source','source'),('Output','output')]:
+        if imgui.button('Scan'):state.scan()
+        imgui.same_line()
+        right=imgui.get_cursor_pos_x()+imgui.get_content_region_avail().x-150
+        imgui.set_cursor_pos_x(max(imgui.get_cursor_pos_x(),right))
+        if imgui.button('CODM directory',(150,0)) and state.dialog is None:
+            state.dialog=pfd.select_folder('CODM directory',state.source);state.dialog_field='source'
+        if imgui.is_item_hovered():imgui.set_tooltip(state.source or 'CODM directory')
+        for label,field in [('Output','output')]:
             imgui.text(label);imgui.same_line(72);imgui.set_next_item_width(max(200,imgui.get_content_region_avail().x-160))
             _,value=imgui.input_text('##'+field,getattr(state,field));setattr(state,field,value)
             imgui.same_line()
