@@ -127,7 +127,7 @@ class Compiler:
             if material.get('vertexWind'):m['colors']=None
             if material['decal'] and material['blend']=='alpha':
                 m['vertices']+=m['normals']*.0005
-            if m['uv'] is not None and not material.get('vertexBlend'):
+            if m['uv'] is not None and not (material.get('vertexBlend') or material.get('terrainMask')):
                 m['uv']*=material['uv_scale'];m['uv']+=material['uv_offset'];m['uv'][:,1]=1-m['uv'][:,1]
             if m['uv1'] is not None:m['uv1'][:,1]=1-m['uv1'][:,1]
             m.update(name=('nocollision_sky_' if material.get('sky') else 'decal_' if material['decal'] else '')+g.get('m_Name','mesh'),material=mi,
@@ -139,7 +139,7 @@ class Compiler:
                              'decalOffsetMetres':.0005 if material['decal'] and material['blend']=='alpha' else 0,
                              'layer':g.get('m_Layer',0),
                              'collision':'separate C2MX COLL chunk'})
-            if material.get('vertexBlend'):
+            if material.get('vertexBlend') or material.get('terrainMask'):
                 from .blending import bake_mesh
                 self.log(f"Baking ground layers: {m['name']} ({len(m['faces'])} triangles)")
                 self.meshes.extend(bake_mesh(m,self.materials,mi))

@@ -68,6 +68,27 @@ def evaluate(samples, colors, height, floats, keywords):
     return albedo, normal, mr
 
 
+def evaluate_mask_terrain(images, uv, world, recipe):
+    """Four-layer terrain's packed-color branch; inputs are source UV and Unity world XYZ."""
+    control=recipe['textures']['_Control']
+    world_uv=world[:,[0,2]]*recipe['controlWorldScale']
+    mask=sample(images['_Control'],world_uv,control['transform'])[:,:3]
+    leftover=np.maximum(1-mask.sum(axis=1,keepdims=True),0)
+    weights=np.concatenate((mask,leftover),axis=1)
+    weights/=np.maximum(weights.sum(axis=1,keepdims=True),1e-12)
+    albedo=np.zeros((len(uv),3),dtype=np.float32)
+    for i in range(4):
+        packed=sample(images[f'_Splat{i}'],uv,recipe['textures'][f'_Splat{i}']['transform'])
+        basis=recipe['basis'][str(i)]
+        # Shader takes packed B and G as its two PCA coordinates, then squares
+        # the reconstructed vector before mixing by the control-map weights.
+        decoded=(np.asarray(basis['BasisX'])*(packed[:,2:3]*2-1)
+                 +np.asarray(basis['BasisY'])*(packed[:,1:2]*2-1)
+                 +np.asarray(basis['Offset']))**2
+        albedo+=decoded*weights[:,i:i+1]
+    return np.clip(albedo,0,1)
+
+
 def bake_mesh(mesh, materials, index):
     session=getattr(materials,'bake_session',None)
     started=time.perf_counter()
@@ -79,20 +100,21 @@ def bake_mesh(mesh, materials, index):
 
 
 def _bake_mesh(mesh, materials, index):
-    recipe = materials.items[index]['vertexBlend']
+    terrain='terrainMask' in materials.items[index]
+    recipe = materials.items[index].get('terrainMask') or materials.items[index]['vertexBlend']
     uv, colors = mesh['uv'], mesh['colors']
-    if uv is None or colors is None:
+    if uv is None or (colors is None and not terrain):
         raise ValueError('Vertex-blended surface requires source UV0 and vertex RGBA')
-    if recipe['floats'].get('_HeightBlend', 0):
+    if not terrain and recipe['floats'].get('_HeightBlend', 0):
         raise ValueError('Terrain height-blend variant is not yet decoded')
     root = materials.output
     images = {}
     for slot, entry in recipe['textures'].items():
         image = np.asarray(Image.open(root/entry['path']).convert('RGBA'), dtype=np.float32)/255
-        if entry['srgb']:image[:, :, :3] = linear(image[:, :, :3])
+        if entry.get('srgb'):image[:, :, :3] = linear(image[:, :, :3])
         images[slot] = image
     session=getattr(materials,'bake_session',None)
-    gpu=session.prepare(images,recipe) if session else None
+    gpu=session.prepare(images,recipe) if session and not terrain else None
     chart_started=time.perf_counter()
     page_size = max(512, materials.max_texture or 4096)
     pad = 8; density = 64
@@ -135,7 +157,8 @@ def _bake_mesh(mesh, materials, index):
     token=hashlib.sha256((mesh['name']+repr(mesh['extras'])+str(index)).encode()).hexdigest()[:12]
     # Preserve original editable inputs independently of the baked visual UVs.
     source_dir=root/'source_layers';source_dir.mkdir(exist_ok=True)
-    np.savez_compressed(source_dir/(token+'.npz'), uv0=uv, vertexRGBA=colors, faces=mesh['faces'])
+    np.savez_compressed(source_dir/(token+'.npz'), uv0=uv,
+                        vertexRGBA=colors if colors is not None else np.empty((0,4)), faces=mesh['faces'])
     if session:session.stats['chartSeconds']+=time.perf_counter()-chart_started
     parts=[]
     for page, entries in enumerate(pages):
@@ -169,14 +192,20 @@ def _bake_mesh(mesh, materials, index):
                 bc12=(q-u[0])@np.linalg.inv(np.stack((u[1]-u[0],u[2]-u[0])))
                 bc=np.column_stack((1-bc12.sum(1),bc12))
                 bc=np.maximum(bc,0);bc/=bc.sum(1,keepdims=True)
-                source_uv=bc@uv[face];rgba=bc@colors[face];pos=bc@mesh['vertices'][face]
-                samples={}
-                for slot,entry in recipe['textures'].items():
-                    samples[slot]=sample(images[slot],source_uv,entry['transform'])
-                for slot,default in (('_BaseTexture',[0,0,0,1]),('_Albedo1',[1,1,1,1]),('_Albedo2',[1,1,1,1]),('_BaseNormal',[.5,.5,1,1]),('_Normal1',[.5,.5,1,1])):
-                    if slot not in samples:samples[slot]=np.broadcast_to(default,(len(q),4))
-                a,n,mr=evaluate(samples,rgba,pos[:,1],recipe['floats'],recipe['keywords'])
-                if degenerate:n[:]=[0,0,1]
+                source_uv=bc@uv[face];pos=bc@mesh['vertices'][face]
+                if terrain:
+                    world=pos*[-1,1,1]
+                    a=evaluate_mask_terrain(images,source_uv,world,recipe)
+                    n=np.broadcast_to([0,0,1],(len(q),3))
+                    mr=np.broadcast_to([1,.7,0],(len(q),3))
+                else:
+                    rgba=bc@colors[face];samples={}
+                    for slot,entry in recipe['textures'].items():
+                        samples[slot]=sample(images[slot],source_uv,entry['transform'])
+                    for slot,default in (('_BaseTexture',[0,0,0,1]),('_Albedo1',[1,1,1,1]),('_Albedo2',[1,1,1,1]),('_BaseNormal',[.5,.5,1,1]),('_Normal1',[.5,.5,1,1])):
+                        if slot not in samples:samples[slot]=np.broadcast_to(default,(len(q),4))
+                    a,n,mr=evaluate(samples,rgba,pos[:,1],recipe['floats'],recipe['keywords'])
+                    if degenerate:n[:]=[0,0,1]
                 values=(srgb(a),n*.5+.5,mr)
                 for target,value in zip(buffers,values):
                     target[y:y+h+2*pad+1,x:x+w+2*pad+1]=np.rint(np.clip(value,0,1)*255).astype(np.uint8).reshape(h+2*pad+1,w+2*pad+1,3)
@@ -188,9 +217,13 @@ def _bake_mesh(mesh, materials, index):
             if backend in ('cpu','gpu'):session.stats[backend+'Pages']+=1
         variant=copy.deepcopy(materials.items[index]);variant['name']+=f'_baked_{token}_{page}'
         variant.update(color=[1,1,1,1],metallic=1.,roughness=1.,uv_scale=[1,1],uv_offset=[0,0],textures={})
-        variant['vertexBlendBake']={'method':'triangle_charts','backend':backend,'targetTexelsPerMetre':density,'gutterPixels':pad,
-                                   'sourceAttributes':f'source_layers/{token}.npz','limitedCharts':int(sum(c[4]<1 for c,x,y in entries)),
-                                   'flatNormalCharts':int(sum(c[6] for c,x,y in entries))}
+        bake_info={'method':'triangle_charts','backend':backend,'targetTexelsPerMetre':density,'gutterPixels':pad,
+                   'sourceAttributes':f'source_layers/{token}.npz','limitedCharts':int(sum(c[4]<1 for c,x,y in entries)),
+                   'flatNormalCharts':int(sum(c[6] for c,x,y in entries))}
+        if terrain:
+            bake_info={**bake_info,'method':'control_mask_pca_splats',
+                       'controlProjection':'Unity world XZ; inferred control scale'}
+        variant['terrainMaskBake' if terrain else 'vertexBlendBake']=bake_info
         png_started=time.perf_counter()
         for i,role in enumerate(('color','normal','metallic')):
             path=f'images/blend_{token}_{page}_{role}.png'
@@ -201,5 +234,5 @@ def _bake_mesh(mesh, materials, index):
         parts.append({'name':mesh['name']+f'_blend_{page}','material':mi,'vertices':np.asarray(vertices,dtype='<f4'),
                       'normals':np.asarray(normals,dtype='<f4'),'faces':np.arange(len(vertices),dtype='<u4').reshape(-1,3),
                       'uv':np.concatenate(out_uv).astype('<f4'),'uv1':np.asarray(uv1,dtype='<f4') if uv1 is not None else None,'colors':None,
-                      'extras':{**mesh['extras'],'vertexBlendBake':variant['vertexBlendBake']}})
+                      'extras':{**mesh['extras'],('terrainMaskBake' if terrain else 'vertexBlendBake'):bake_info}})
     return parts

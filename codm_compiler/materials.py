@@ -132,6 +132,11 @@ class Materials:
         if 'cull' in pass_state:mat['doubleSided']=pass_state['cull']==0
         color=colors.get('_BaseColor',colors.get('_Color',{'r':1,'g':1,'b':1,'a':1}))
         mat['color']=[float(color.get(c,1)) for c in 'rgba']
+        if (shader=='UnityBuiltIn/Unlit/Texture' and '_STATIC_COLOR' in t.get('m_ShaderKeywords','')
+                and not any(env.get('m_Texture',{}).get('m_PathID') for env in tex.values())
+                and '_TintColor' in colors):
+            mat['color']=[float(colors['_TintColor'].get(c,1)) for c in 'rgba']
+            mat['staticColorSource']='_TintColor'
         mat['metallic']=float(np.clip(floats.get('_Metallic',0),0,1))
         mat['roughness']=float(np.clip(1-floats.get('_Glossiness',floats.get('_Smoothness',.15)),0,1))
         mat['shader']=shader;mat['renderQueue']=queue;mat['srcBlend']=src;mat['dstBlend']=dst
@@ -224,7 +229,29 @@ class Materials:
                 if normal in recipe['textures'] and albedo in recipe['textures']:
                     recipe['textures'][normal]['transform']=recipe['textures'][albedo]['transform'][:]
             mat['vertexBlend']=recipe;mat['color']=[1,1,1,1]
-        if extras and shader!=SHADER:
+        TERRAIN_MASK='CODM/Terrain/4Tex_Mask_Terrain'
+        if shader==TERRAIN_MASK:
+            recipe={'shader':shader,'textures':{},'basis':{},'controlWorldScale':1/1024,
+                    'sourceKeywords':t.get('m_ShaderKeywords','').split()}
+            for slot in ('_Control','_Splat0','_Splat1','_Splat2','_Splat3'):
+                env=tex.get(slot,{})
+                if not env.get('m_Texture',{}).get('m_PathID'):
+                    self.failures.append({'material':mat['name'],'slot':slot,'error':'Missing required terrain texture'})
+                    continue
+                try:
+                    texture=self.source.ref(obj,env['m_Texture'])
+                    path=self.texture(texture)
+                    scale=env.get('m_Scale',{'x':1,'y':1});off=env.get('m_Offset',{'x':0,'y':0})
+                    recipe['textures'][slot]={'path':path,'transform':[scale['x'],scale['y'],off['x'],off['y']]}
+                except Exception as e:self.failures.append({'material':mat['name'],'slot':slot,'error':str(e)})
+            for i in range(4):
+                recipe['basis'][str(i)]={role:[float(colors.get(f'_Splat{i}_{role}',{}).get(c,default))
+                                       for c,default in zip('rgb',(0,0,0) if role!='Offset' else (0.5,0.5,0.5))]
+                                       for role in ('BasisX','BasisY','Offset')}
+            if len(recipe['textures'])==5:
+                mat['terrainMask']=recipe;mat['color']=[1,1,1,1]
+                self.source.warnings.append(f"{mat['name']}: four-layer terrain baked from control mask and PCA splats")
+        if extras and shader not in (SHADER,TERRAIN_MASK):
             self.source.warnings.append(f"{mat['name']}: additional shader textures preserved, not composited: {', '.join(extras)}")
         if mat['name'].lower().startswith('empty') and '_donotmodify' in mat['name'].lower() and not mat['textures']:
             mat['unresolvedPlaceholder']=True
