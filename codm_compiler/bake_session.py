@@ -1,4 +1,3 @@
-"""Lazy GPU lifetime and export-level bake telemetry."""
 import time
 
 

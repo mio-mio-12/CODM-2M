@@ -1,5 +1,4 @@
 #pragma once
-// Standalone C++17 footer/directory reader. Chunk bodies are UTF-8 JSON.
 #include <array>
 #include <cstdint>
 #include <filesystem>

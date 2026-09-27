@@ -13,12 +13,6 @@ def safe_name(s):
 
 
 def visible_pass_state(shader, material, floats):
-    """Resolve the primary subshader's visible pass, not shadow/depth/add-light passes.
-
-    Shader constants override stale material editor properties. Named bindings
-    resolve through saved values then shader defaults; unresolved bindings are
-    omitted rather than treating the serialized placeholder zero as authoritative.
-    """
     form=shader.get('m_ParsedForm',{})
     defaults={}
     for prop in form.get('m_PropInfo',{}).get('m_Props',[]):
@@ -62,14 +56,14 @@ class Materials:
         k=(key(obj),usage)
         if k in self.images:return self.images[k]
         data=obj.read()
-        # Streaming payloads can reside in another indexed bundle.
+
         stream=getattr(data,'m_StreamData',None)
         path=getattr(stream,'path','') if stream else ''
         if path:self.source.file(path)
         im=data.image.convert('RGBA')
         if usage in ('normal','packed_normal'):
             a=np.asarray(im,dtype=np.float32)/255
-            # Unity's DXT5nm encodes X in alpha, BC5 encodes X in red.
+
             fmt=int(getattr(data,'m_TextureFormat',0))
             x=(a[:,:,0]*a[:,:,3] if fmt in (12,) and usage=='normal' else a[:,:,0])*2-1
             y=a[:,:,1]*2-1
@@ -106,8 +100,8 @@ class Materials:
         except Exception as e:self.source.warnings.append(f"Shader for {mat['name']}: {e}")
         text=(mat['name']+' '+shader+' '+t.get('m_ShaderKeywords','')).lower()
         src,dst=int(floats.get('_SrcBlend',-1)),int(floats.get('_DstBlend',-1))
-        # Resolve authored pass bindings for every shader; generic editor blend
-        # properties may be stale or unrelated to the pass actually rendered.
+
+
         screen_fx=shader in ('CODM/FX/TVScanLineAdd','CODM/FX/CodmKGTVScreen')
         pass_state=visible_pass_state(st,t,floats)
         src=pass_state.get('srcBlend',src);dst=pass_state.get('dstBlend',dst)
@@ -165,7 +159,7 @@ class Materials:
                 path=self.texture(texture,('packed_normal' if slot=='_BumpMapPakced' else 'normal') if usage=='normal' else 'color')
                 if usage=='metallic':
                     im=np.asarray(Image.open(self.output/path).convert('RGBA')).copy()
-                    # Standard Unity metallic R / smoothness A -> glTF roughness G / metallic B.
+
                     packed=np.zeros_like(im);packed[:,:,0]=255;packed[:,:,1]=255-im[:,:,3];packed[:,:,2]=im[:,:,0];packed[:,:,3]=255
                     path=str(Path(path).with_stem(Path(path).stem+'_mr')).replace('\\','/')
                     Image.fromarray(packed).save(self.output/path,compress_level=1)
@@ -184,8 +178,8 @@ class Materials:
         mat['emissive']=[float(np.clip(emission.get(c,0),0,1)) for c in 'rgb']
         if 'emissive' in mat['textures'] and not any(mat['emissive']):mat['emissive']=[1,1,1]
         if screen_fx and 'color' in mat['textures']:
-            # Static artwork approximation: these FX output the main texture,
-            # not a white emission constant added to a lit diffuse rectangle.
+
+
             tint=colors.get('_MainColor',{'r':1,'g':1,'b':1,'a':1})
             mat['color']=[float(np.clip(tint.get(c,1),0,1)) for c in 'rgba']
             mat['unlit']=True;mat['emissive']=[0,0,0]
@@ -193,8 +187,8 @@ class Materials:
             if shader=='CODM/FX/CodmKGTVScreen':mat['alpha']='OPAQUE'
             self.source.warnings.append(f"{mat['name']}: exported static screen artwork; animated distortion/scanlines are preserved in source material")
         if mat['blend']=='additive' and 'color' in mat['textures']:
-            # All additive materials use this path, independent of asset names.
-            # Common particle tint/brightness properties retain their static tint.
+
+
             if not screen_fx and '_TintColor' in colors:
                 tint=colors['_TintColor'];brightness=max(0,float(floats.get('_Brightness',1)))
                 mat['color']=[max(0,float(tint.get(c,1)))*brightness for c in 'rgb']+[float(np.clip(tint.get('a',1),0,1))]
@@ -224,7 +218,7 @@ class Materials:
                         'transform':[scale['x'],scale['y'],off['x'],off['y']]}
                 except Exception as e:
                     self.failures.append({'material':mat['name'],'slot':slot,'error':str(e)})
-            # Shader shares albedo UV transforms with each corresponding packed normal.
+
             for normal,albedo in (('_BaseNormal','_BaseTexture'),('_Normal1','_Albedo1')):
                 if normal in recipe['textures'] and albedo in recipe['textures']:
                     recipe['textures'][normal]['transform']=recipe['textures'][albedo]['transform'][:]
@@ -262,11 +256,6 @@ class Materials:
         return idx
 
     def additive_preview(self,mat):
-        """Convert emitted RGB to straight alpha for GLB's limited blend modes.
-
-        Keep the original for native C2M additive blending. Black emitted pixels
-        become transparent even when the source texture's alpha is opaque.
-        """
         from .blending import linear,srgb
         path=mat['textures']['color']
         a=np.asarray(Image.open(self.output/path).convert('RGBA'),dtype=np.float32)/255
@@ -293,12 +282,12 @@ class Materials:
             if slot_index>=len(transforms):raise ValueError(f'Atlas index {slot_index} exceeds {slot} transform table')
             packed=int(transforms[slot_index]);x,y,w,h=atlas_rect(packed,atlas['new'])
             im=Image.open(self.output/path)
-            # Source coordinates are bottom-left; decoded PNGs are top-left.
+
             box=(round(x*im.width),round((1-y-h)*im.height),round((x+w)*im.width),round((1-y)*im.height))
             if box[0]<0 or box[1]<0 or box[2]>im.width or box[3]>im.height or box[2]<=box[0] or box[3]<=box[1]:
                 raise ValueError(f'Invalid atlas rectangle {box} for {slot}')
             cropped=im.crop(box)
-            # The shader samples one texel inside each atlas tile at mip 0.
+
             if min(cropped.size)>4:cropped=cropped.crop((1,1,cropped.width-1,cropped.height-1))
             target=str(Path(path).with_stem(Path(path).stem+f'_tile_{slot_index}_{packed}')).replace('\\','/')
             cropped.save(self.output/target,compress_level=1);variant['textures'][role]=target
@@ -310,7 +299,6 @@ class Materials:
 
 
 def atlas_rect(packed,new=False):
-    """Decoded from installed CODStandard Static vertex/pixel shader bytecode."""
     if new:
         return ((packed>>15&127)/128,(packed>>8&127)/128,(1<<(packed>>4&15))/8192,(1<<(packed&15))/8192)
     size=((packed&15)+1)/16

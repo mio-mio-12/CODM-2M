@@ -1,8 +1,3 @@
-"""Portable bake of CODM/Terrain/3Tex_VertexBlend_NormSpecRealtime.
-
-Rules recovered from the installed D3D11 shader, full normal-map branch.
-Triangle charts retain UV orientation, with independent gutters to avoid overlap.
-"""
 import copy
 import hashlib
 import math
@@ -24,7 +19,6 @@ def srgb(c):
 
 
 def sample(image, uv, transform):
-    """Bilinear repeat, Unity bottom-left UVs / decoded top-left PNGs."""
     q = uv * transform[:2] + transform[2:]
     q = np.stack((q[:, 0], 1 - q[:, 1]), axis=1)
     h, w = image.shape[:2]
@@ -38,7 +32,6 @@ def sample(image, uv, transform):
 
 
 def evaluate(samples, colors, height, floats, keywords):
-    """Return linear albedo, tangent normal, roughness/metallic for samples."""
     r = colors[:, 0:1] if '_ALBEDO_VERTEX_R' in keywords else np.zeros_like(colors[:, :1])
     g = colors[:, 1:2] if '_ALBEDO_VERTEX_G' in keywords else np.zeros_like(r)
     r = np.clip(r, 0, 1)
@@ -51,14 +44,14 @@ def evaluate(samples, colors, height, floats, keywords):
     xy = (xy*2-1)*floats.get('_BumpScale', 1)
     normal = np.concatenate((xy, np.sqrt(np.maximum(0, 1-(xy*xy).sum(axis=1, keepdims=True)))), axis=1)
     normal /= np.maximum(np.linalg.norm(normal, axis=1, keepdims=True), 1e-12)
-    # Bake charts retain both source UV axes; no normal-channel inversion.
+
     metallic = floats.get('_BaseMetallic', 0)*(1-r) + floats.get('_Metallic1', .3)*r
     metallic = metallic*(1-g) + floats.get('_Metallic2', .3)*g
     h = np.clip((height[:, None]-floats.get('_waterHeight', -100))/max(floats.get('_waterTrans', 0), .01), 0, 1)
     wet = (1-h*h*(3-2*h))*colors[:, 2:3]
     if '_use_g_control_wet_ON' in keywords:
-        # D3D variant combines raw green with height/blue wetness. This is
-        # independent of the green albedo keyword and its masked layer weight.
+
+
         green = np.clip(colors[:, 1:2], 0, 1)
         wet = wet + green*(1-wet)
     albedo *= 1+wet*(floats.get('_albedoMult', .2)-1)
@@ -69,7 +62,6 @@ def evaluate(samples, colors, height, floats, keywords):
 
 
 def evaluate_mask_terrain(images, uv, world, recipe):
-    """Four-layer terrain's packed-color branch; inputs are source UV and Unity world XYZ."""
     control=recipe['textures']['_Control']
     world_uv=world[:,[0,2]]*recipe['controlWorldScale']
     mask=sample(images['_Control'],world_uv,control['transform'])[:,:3]
@@ -80,8 +72,8 @@ def evaluate_mask_terrain(images, uv, world, recipe):
     for i in range(4):
         packed=sample(images[f'_Splat{i}'],uv,recipe['textures'][f'_Splat{i}']['transform'])
         basis=recipe['basis'][str(i)]
-        # Shader takes packed B and G as its two PCA coordinates, then squares
-        # the reconstructed vector before mixing by the control-map weights.
+
+
         decoded=(np.asarray(basis['BasisX'])*(packed[:,2:3]*2-1)
                  +np.asarray(basis['BasisY'])*(packed[:,1:2]*2-1)
                  +np.asarray(basis['Offset']))**2
@@ -124,8 +116,8 @@ def _bake_mesh(mesh, materials, index):
         delta = np.stack((u[1]-u[0], u[2]-u[0]))
         degenerate=abs(np.linalg.det(delta)) < 1e-12
         if degenerate:
-            # Constant/collinear source UVs still have valid albedo/weight samples.
-            # Give them a new chart; the undefined source tangent uses flat normal.
+
+
             edge=p[1]-p[0];length=np.linalg.norm(edge)
             axis=edge/max(length,1e-12);ac=p[2]-p[0]
             along=np.dot(ac,axis);across=np.linalg.norm(ac-along*axis)
@@ -137,8 +129,8 @@ def _bake_mesh(mesh, materials, index):
         scale = min(1., (page_size-2*pad-1)/max(size))
         size = np.maximum(2, np.floor(size*scale).astype(int))
         charts.append((face, lo, hi, size, scale, u, degenerate))
-    # Far scenery can contain kilometre-scale triangles. Bound total material
-    # baking cost instead of allocating one full texture per distant triangle.
+
+
     cost=sum(np.prod(c[3]+2*pad+1) for c in charts)
     budget=8*page_size*page_size
     budget_scale=min(1.,math.sqrt(budget/max(cost,1)))
@@ -155,7 +147,7 @@ def _bake_mesh(mesh, materials, index):
         current.append((chart,x,y));x+=w;row=max(row,h)
     if current:pages.append(current)
     token=hashlib.sha256((mesh['name']+repr(mesh['extras'])+str(index)).encode()).hexdigest()[:12]
-    # Preserve original editable inputs independently of the baked visual UVs.
+
     source_dir=root/'source_layers';source_dir.mkdir(exist_ok=True)
     np.savez_compressed(source_dir/(token+'.npz'), uv0=uv,
                         vertexRGBA=colors if colors is not None else np.empty((0,4)), faces=mesh['faces'])
@@ -165,7 +157,7 @@ def _bake_mesh(mesh, materials, index):
         width=max(x+int(c[3][0])+2*pad+1 for c,x,y in entries)
         height=max(y+int(c[3][1])+2*pad+1 for c,x,y in entries)
         paths=[root/f'images/blend_{token}_{page}_{role}.png' for role in ('color','normal','metallic')]
-        # Internal same-job recovery only; callers must verify identical inputs.
+
         reuse=getattr(materials,'reuse_existing_bakes',False) and all(p.exists() for p in paths)
         if reuse:
             for path in paths:
@@ -186,7 +178,7 @@ def _bake_mesh(mesh, materials, index):
         for (face,lo,hi,size,scale,u,degenerate),x,y in entries:
             w,h=size
             if not reuse and backend=='cpu':
-                # All gutters use edge-clamped barycentrics, never another chart.
+
                 xx,yy=np.meshgrid(np.arange(w+2*pad+1),np.arange(h+2*pad+1))
                 q=lo+np.stack(((xx-pad)/w,(yy-pad)/h),axis=-1).reshape(-1,2)*(hi-lo)
                 bc12=(q-u[0])@np.linalg.inv(np.stack((u[1]-u[0],u[2]-u[0])))
@@ -209,7 +201,7 @@ def _bake_mesh(mesh, materials, index):
                 values=(srgb(a),n*.5+.5,mr)
                 for target,value in zip(buffers,values):
                     target[y:y+h+2*pad+1,x:x+w+2*pad+1]=np.rint(np.clip(value,0,1)*255).astype(np.uint8).reshape(h+2*pad+1,w+2*pad+1,3)
-            # Positive scale in both original UV axes preserves the tangent basis.
+
             atlas_uv=((u-lo)/(hi-lo)*size+[x+pad+.5,y+pad+.5])/[width,height]
             out_uv.append(atlas_uv)
         if session:

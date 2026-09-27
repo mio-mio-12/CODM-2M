@@ -15,15 +15,15 @@ class BlendTests(unittest.TestCase):
         c=np.array([[1,0,0,1],[1,1,0,1],[1,.25,.5,1],[1,.25,.5,1]])
         f={'_waterHeight':0,'_waterTrans':1,'_albedoMult':.2,'_smoothMult':3,
            '_BaseMetallic':.1,'_Metallic1':.1,'_metallicMult':2}
-        # Below the water height: blue wetness=.5, union with green=.625.
-        # Above the transition: blue contributes zero, green still contributes .25.
+
+
         h=np.array([2,2,-1,2])
         a,n,mr=evaluate(s,c,h,f,['_ALBEDO_VERTEX_R','_use_g_control_wet_ON'])
         wet=np.array([0,1,.625,.25])
         np.testing.assert_allclose(a[:,0],1-.8*wet)
         np.testing.assert_allclose(mr[:,1],1-.2*(1+2*wet))
         np.testing.assert_allclose(mr[:,2],.1*(1+wet))
-        # Enabling green albedo with red=1 masks its layer, not its wetness.
+
         b,_,_=evaluate(s,c,h,f,['_ALBEDO_VERTEX_R','_ALBEDO_VERTEX_G','_use_g_control_wet_ON'])
         np.testing.assert_allclose(a,b)
 

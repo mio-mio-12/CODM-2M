@@ -14,14 +14,14 @@ from .catalog import scene_labels
 
 class CODMMesh(MeshHandler):
     def get_triangles(self):
-        # Static-batch renderers repeatedly reference the same decoded source.
+
         if not hasattr(self,'_codm_triangles'):
             self._codm_triangles=super().get_triangles()
         return self._codm_triangles
 
     def get_channel_dtype(self,channel):
-        # CODM's channel 5 is one byte/component (confirmed against full stream bounds).
-        # Packed tangents are not exported; normals/tangents are reconstructed as needed.
+
+
         if self.version[0]<2017 and channel.format==5:return 'b'
         return super().get_channel_dtype(channel)
 
@@ -84,7 +84,7 @@ class Compiler:
                     raise ValueError(f'Unsupported vertex stream layout ({extent} vs {len(vd.m_DataSize)})')
             colors=np.asarray(h.m_Colors,dtype=np.float32) if h.m_Colors else None
             if colors is not None and colors.max()>1:colors/=255.
-            # Convert shared attributes once instead of for each renderer/submesh.
+
             for name in ('m_Vertices','m_Normals','m_UV0','m_UV1'):
                 values=getattr(h,name)
                 if values is not None:setattr(h,name,np.asarray(values,dtype=np.float64 if name in ('m_Vertices','m_Normals') else '<f4'))
@@ -96,8 +96,8 @@ class Compiler:
         if not t.get('m_Enabled',True) or key(obj) in excluded:return
         if not self.include_inactive and not self.active(transform):return
         if t.get('m_CastShadows',1)==3:
-            # Unity ShadowCastingMode.ShadowsOnly is invisible in the color pass.
-            # Evaluate per renderer, never by material name; colliders are separate.
+
+
             self.omitted_renderers.append({'sourceRenderer':key(obj),'name':g.get('m_Name',''),
                                            'reason':'shadows_only','shadowCastingMode':3})
             return
@@ -162,7 +162,7 @@ class Compiler:
         t=self.source.tree(obj);go,g,transform=self.go_info(obj)
         if not t.get('m_Enabled',True) or (not self.include_inactive and not self.active(transform)):return
         world=self.world(transform)
-        # Local metre Unity primitives -> local inch Z-up RH primitives.
+
         basis=np.array([[-1,0,0],[0,0,-1],[0,1,0]],dtype=np.float64)
         matrix=np.eye(4);matrix[:3,:3]=basis@world[:3,:3]@basis.T;matrix[:3,3]=basis@world[:3,3]/.0254
         entry={'id':key(obj),'name':g.get('m_Name','collider'),'kind':obj.type.name,'trigger':bool(t.get('m_IsTrigger',False)),
@@ -271,7 +271,7 @@ class Compiler:
                 if go:self.go_transform[key(go)]=obj
             elif obj.type.name=='LODGroup':
                 t=self.source.tree(obj)
-                # Highest detail only; lower LODs overlap the same physical object.
+
                 for lod in t.get('m_LODs',[])[1:]:
                     for renderer in lod.get('renderers',[]):
                         r=self.source.ref(obj,renderer.get('renderer',renderer))

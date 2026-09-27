@@ -1,4 +1,3 @@
-"""GLB and C2M v3 + C2MX authored-physics extension writers."""
 import hashlib
 import json
 import struct
@@ -90,7 +89,7 @@ def write_glb(path,meshes,materials,root):
 
 
 def cs(s):
-    # Cadence C2M v3 string: flag then null-terminated UTF-8.
+
     if '\0' in s:raise ValueError('NUL in C2M string')
     return b'\1'+s.encode('utf-8')+b'\0'
 
@@ -101,7 +100,6 @@ def to_c2m(v,normal=False):
 
 
 def collision_chunk(colliders):
-    """Version 1: variable records retaining exact primitive local shape + affine world transform."""
     records=[]
     for c in colliders:
         record={k:v for k,v in c.items() if k not in ('vertices','faces')}
@@ -125,7 +123,7 @@ def write_c2m(path,meshes,materials,colliders,metadata,navigation):
 
 def _write_c2m(path,meshes,materials,colliders,metadata,navigation):
     if len(materials)>65535:raise ValueError('C2M supports at most 65535 materials')
-    # One world object contains the already transformed world/prop surfaces.
+
     with Path(path).open('w+b') as f:
         f.write(b'C2M'+bytes([3,255])+cs(metadata['name'])+cs(''))
         table=f.tell();f.write(b'\0'*80)
@@ -154,7 +152,7 @@ def _write_c2m(path,meshes,materials,colliders,metadata,navigation):
         light_offset=f.tell();ents_offset=f.tell();f.write(cs(''))
         base_end=f.tell()
         f.seek(table)
-        # 80-byte table, as read by Cadence's C2MMap.cpp.
+
         f.write(struct.pack('<IQIIQIQIQIQQ',1,object_offset,0,0,instance_offset,0,image_offset,len(materials),material_offset,0,light_offset,ents_offset))
         f.seek(base_end)
         chunks=[]
@@ -166,12 +164,11 @@ def _write_c2m(path,meshes,materials,colliders,metadata,navigation):
         f.write(b'\0'*(-f.tell()%8));directory=f.tell()
         for c in chunks:f.write(struct.pack('<4sIQQ',*c))
         length=f.tell()-directory
-        # Footer is always the final 32 bytes. Unknown chunks are skippable.
+
         f.write(struct.pack('<4sIQQII',b'C2MX',1,directory,length,len(chunks),0))
 
 
 def read_extension(path):
-    """Strict reference reader used by tests and external consumers."""
     path=Path(path);size=path.stat().st_size
     with path.open('rb') as f:
         if size<32:raise ValueError('No C2MX footer')

@@ -7,11 +7,6 @@ import math
 
 
 def install_codm_bundle_adapter():
-    """CODM appends one uint32 to some stripped AssetBundle descriptors.
-
-    Only tolerate that exact trailing-size discrepancy in the descriptor. Mesh,
-    material and texture layouts remain strictly checked.
-    """
     from UnityPy.files.ObjectReader import ObjectReader
     if getattr(ObjectReader, '_codm_bundle_adapter', False):return
     original=ObjectReader.parse_as_object
@@ -31,8 +26,8 @@ def key(obj):
 
 
 def jsonable(value,nonfinite=None,path='$'):
-    # Preserve malformed/unset source scalars without emitting invalid JSON.
-    # This applies to source metadata only, never geometry or physics values.
+
+
     if isinstance(value,float) and not math.isfinite(value):
         if nonfinite is not None:nonfinite.append(path)
         return {'nonFiniteFloat':'NaN' if math.isnan(value) else '+Infinity' if value>0 else '-Infinity'}
@@ -56,7 +51,7 @@ class Source:
             for node in b['nodes']:
                 name=node['name'].lower()
                 if name in self.nodes and self.nodes[name]!=b['path']:
-                    # CAB copies can occur across bundles. Same internal identity is resolvable.
+
                     continue
                 self.nodes[name]=b['path']
 

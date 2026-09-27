@@ -1,4 +1,3 @@
-"""Friendly map entries and local game-art preview discovery."""
 import gc
 import hashlib
 import json
@@ -48,7 +47,7 @@ def library(catalog, all_scenes=False):
             'scope':'Streamed world: this exports the selected main scene, not every terrain tile.' if main else 'Exports the selected visual scene, including its props and materials.'})
         group['variants'].append(label)
         if atlas:group['scope']='Exports the selected visual scene, including its props and materials.'
-    # Keep available variants visible; choose the newest named visual layout first.
+
     for group in groups.values():
         group['variants'].sort(key=lambda n:('atlas' not in n.lower(), 'new' not in n.lower(), n))
     return sorted(groups.values(),key=lambda g:(g['title'].lower(),g['id']))
@@ -61,7 +60,7 @@ def art_key(name):
     name=re.sub(r'(2k|4k|hd|1024)$','',name)
     return {'tunisa':'tunisia','docks':'dock','russiannuketown':'nuketownrussian',
             'chinesenuketown':'nuketownchina','zmsumpf':'zmshinonuma',
-            # Verified winner-circle artwork with nonstandard source names.
+
             'armadawinnercircle00211':'armada','winnercircleseasidea':'seaside'}.get(name,name)
 
 
@@ -74,13 +73,13 @@ def match_preview(entry, images):
     identity=art_key(entry['name'])
     ranked=[]
     for image in images:
-        # Never substitute a minimap, including entries from older caches.
+
         if image.get('kind')!='Map artwork' or image['name'].lower().startswith('trans_'):continue
         key=art_key(image['name'])
         exact=key==identity
         related=False
         if not exact:
-            # Only known edition suffixes may fall back to base-map art.
+
             related=key==edition_key(identity)
         if exact or related:
             ranked.append(((0 if exact else 1,0 if image['kind']=='Map artwork' else 1,image['name']),image,related))
@@ -110,7 +109,6 @@ def cached_previews(catalog, folder):
 
 
 def extract_previews(catalog, folder, log=print):
-    """Decode only map-art bundles, without loading/exporting map geometry."""
     from .source import Source
     import UnityPy
     from PIL import Image

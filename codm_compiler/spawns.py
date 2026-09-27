@@ -1,8 +1,3 @@
-"""Authored StartSpot extraction from matching level-design scenes.
-
-Never combine mode pools or fall back from a named visual variant to its base.
-No textures, meshes or bot navigation geometry are decoded by this reader.
-"""
 import json
 import re
 from pathlib import Path
@@ -14,7 +9,7 @@ from .version import APP_NAME
 
 def visual_family(label):
     name=label.split(' | ',1)[0]
-    # These suffixes identify visual/bake quality, not gameplay variants.
+
     return re.sub(r'(?:_(?:Atlases|Final|HQ|New))+$','',name,flags=re.I)
 
 

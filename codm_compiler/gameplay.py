@@ -1,4 +1,3 @@
-"""Separate authored gameplay volumes and tactical markers; no solid collision."""
 from itertools import product
 import numpy as np
 from .spawns import matching_scenes

@@ -1,4 +1,3 @@
-"""Dear ImGui frontend. Heavy tasks run in disposable, hidden worker processes."""
 import json
 import configparser
 import os

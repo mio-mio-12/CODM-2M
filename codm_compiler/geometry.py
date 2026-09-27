@@ -21,7 +21,6 @@ def trs(t):
 
 
 def bake(vertices, normals, indices, matrix):
-    """Unity LH -> glTF RH metres. Correct both reflection winding and normals."""
     m = np.diag([-1.,1.,1.,1.]) @ matrix
     v = np.asarray(vertices, dtype=np.float64) @ m[:3,:3].T + m[:3,3]
     faces = np.asarray(indices, dtype=np.uint32).reshape(-1,3).copy()
@@ -52,7 +51,6 @@ def compact(v, n, faces, uv=None, colors=None, uv1=None):
 
 
 def bake_compact(vertices, normals, indices, matrix, uv=None, colors=None, uv1=None):
-    """Transform only referenced vertices, preserving compact() ordering and seams."""
     vertices=np.asarray(vertices,dtype=np.float64)
     indices=np.asarray(indices,dtype=np.int64).reshape(-1,3)
     if indices.size and (indices.min()<0 or indices.max()>=len(vertices)):
@@ -68,12 +66,11 @@ def bake_compact(vertices, normals, indices, matrix, uv=None, colors=None, uv1=N
 
 
 def clip_projector(receivers, projector_world, bounds, offset=0.001):
-    """Clip receiver triangles in projector space; never export the projector cube."""
     inverse = np.linalg.inv(projector_world)
     out_v, out_n, out_uv, out_f = [], [], [], []
     lo, hi = np.asarray(bounds[0]), np.asarray(bounds[1])
     for mesh in receivers:
-        # Receivers use glTF coordinates; transform back into Unity projector space.
+
         v = mesh['vertices'].astype(np.float64) * [-1,1,1]
         local = v @ inverse[:3,:3].T + inverse[:3,3]
         n = mesh['normals'].astype(np.float64)

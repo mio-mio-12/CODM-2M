@@ -1,4 +1,3 @@
-"""Read only UnityFS directory tables; never unpack every bundle to find a map."""
 import json
 import struct
 import os
@@ -66,7 +65,7 @@ def directory(path):
 
 def priority(path, stat=None):
     parts = path.parts
-    # Installed patch copies override the base bundle with the same filename.
+
     if "PersistentData" in parts:
         if "Extract" in parts[parts.index("PersistentData")+1:]:
             i = parts.index("Extract", parts.index("PersistentData"))
@@ -123,7 +122,7 @@ def scan(root, destination, log=print, workers=4):
             return None,{"path":str(p), "error":str(e)}
     ordered=sorted(candidates.values(),key=lambda c:c[0])
     with ThreadPoolExecutor(max_workers=max(1,min(8,workers))) as pool:
-        # Submit bounded batches rather than retaining thousands of futures.
+
         for start in range(0,len(ordered),128):
             for item,error in pool.map(index,ordered[start:start+128]):
                 if item is not None:bundles.append(item)

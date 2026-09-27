@@ -1,9 +1,3 @@
-"""Worker-owned OpenGL 4.3 terrain baker. No UI context or vendor SDK required.
-
-Each workgroup handles an 8x8 tile of one chart, including its own gutters.
-Textures stay resident for a surface; each atlas is downloaded only once.
-All GL resources have explicit lifetimes, including failed allocation paths.
-"""
 import numpy as np
 
 SLOTS = ('_BaseTexture', '_Albedo1', '_Albedo2', '_BaseNormal', '_Normal1')
@@ -161,17 +155,17 @@ class GPUBaker:
                 gl.glBindBufferBase(gl.GL_SHADER_STORAGE_BUFFER,binding,buf)
             for i in range(3):
                 tex=int(gl.glGenTextures(1));outputs.append(tex)
-                # Do not replace source texture bindings on units 0..4.
+
                 gl.glActiveTexture(gl.GL_TEXTURE0+5);gl.glBindTexture(gl.GL_TEXTURE_2D,tex)
                 gl.glTexStorage2D(gl.GL_TEXTURE_2D,1,gl.GL_RGBA8,width,height)
-                # Initialize uncovered atlas space deterministically (GL 4.3).
+
                 zeros=np.zeros((height,width,4),dtype=np.uint8)
                 gl.glTexSubImage2D(gl.GL_TEXTURE_2D,0,0,0,width,height,gl.GL_RGBA,gl.GL_UNSIGNED_BYTE,zeros)
                 gl.glBindImageTexture(i,tex,0,False,0,gl.GL_WRITE_ONLY,gl.GL_RGBA8)
             for offset in range(0,len(tasks),min(self.max_groups,8192)):
                 gl.glUniform1i(gl.glGetUniformLocation(self.program,'tileOffset'),offset)
                 gl.glDispatchCompute(min(len(tasks)-offset,self.max_groups,8192),1,1)
-                # Bound queued GPU work; keep desktop responsiveness on shared GPUs.
+
                 gl.glFinish()
             gl.glMemoryBarrier(gl.GL_TEXTURE_UPDATE_BARRIER_BIT|gl.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT)
             result=[]
@@ -195,8 +189,8 @@ class GPUBaker:
                 self.release_surface()
                 if self.program:self.gl.glDeleteProgram(self.program)
             except Exception:
-                # A lost context can reject cleanup calls too. Destroying the
-                # context releases its remaining objects; do not block CPU fallback.
+
+
                 pass
             finally:self.glfw.destroy_window(self.window);self.window=None
         if self.glfw:self.glfw.terminate()

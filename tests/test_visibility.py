@@ -11,7 +11,7 @@ class VisibilityTests(unittest.TestCase):
         c.source=Mock();c.source.tree.return_value={'m_Enabled':True,'m_CastShadows':mode}
         c.go_info=Mock(return_value=(object(),{'m_Name':'arbitrary textured mesh'},object()))
         c.active=Mock(return_value=active);c.include_inactive=include_inactive;c.omitted_renderers=[]
-        # Stop at the existing MeshFilter validation, after visibility has been decided.
+
         c.components=Mock(return_value=[])
         return c,obj
 

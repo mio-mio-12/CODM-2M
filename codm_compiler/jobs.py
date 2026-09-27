@@ -1,4 +1,3 @@
-"""File-backed isolated jobs for the ImGui app; no console window or IPC payloads."""
 import json
 import sys
 import traceback

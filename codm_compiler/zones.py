@@ -1,4 +1,3 @@
-"""Spatial chunk planning from authored streaming bounds, without loading geometry."""
 import hashlib
 import json
 import math
@@ -88,7 +87,7 @@ def build_index(catalog,scene,log=print):
                        'status':'available' if len(matches)==1 else 'missing' if not matches else 'ambiguous'}
                 chunks.append(chunk)
     if not chunks:raise ValueError('No authored streamed chunks found')
-    # A scene can be referenced more than once. Preserve layer membership, but export it once.
+
     chunks=list({c['id']:c for c in chunks}.values())
     result={'schema':'codm.zone-index/1','generator':APP_NAME,'signature':signature(catalog),
             'world':scene,'title':title(scene.removesuffix('_Main')),'units':'Unity metres, X/Z',

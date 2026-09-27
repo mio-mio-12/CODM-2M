@@ -1,4 +1,4 @@
-# -*- mode: python ; coding: utf-8 -*-
+
 from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules
 
 datas = [('codm_compiler/codm_types.json', 'codm_compiler')]
