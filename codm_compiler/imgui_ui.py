@@ -30,6 +30,7 @@ class BrowserState:
         self.spawns=True;self.volumes=True;self.tactical=True;self.inactive=False;self.quality=2;self.baking=0
         self.status='Ready';self.error='';self.counts={};self.last_output=None;self.process=None;self.job=None
         self.dialog=None;self.dialog_field=None;self.started=0.;self.elapsed=0.;self.scan_job=False
+        self.preview_process=None;self.preview_job=None;self.progress_check=0.
         self.zone_index=None;self.zone_cells=set();self.zone_layers=set();self.zone_name='Zone';self.zone_open=False
         self.zone_queue=[];self.zone_manifest=None;self.zone_current=None;self.zone_out=None;self.index_job=False
         self.zone_presets={};self.zone_preset=0
@@ -84,7 +85,20 @@ class BrowserState:
     def scan(self):
         if not self.source or not Path(self.source).is_dir():
             self.error='Select a CODM directory';return
-        self.start({'kind':'scan','source':self.source,'catalog':str(self.cache.resolve()),'previews':str(self.previews.resolve())})
+        self.stop_previews()
+        self.start({'kind':'scan','source':self.source,'catalog':str(self.cache.resolve()),'previews':str(self.previews.resolve()),'defer_previews':True})
+
+    def stop_previews(self):
+        if self.preview_process:
+            self.preview_process.terminate()
+            try:self.preview_process.wait(timeout=3)
+            except subprocess.TimeoutExpired:self.preview_process.kill();self.preview_process.wait(timeout=3)
+            self.preview_process=None
+
+    def start_previews(self):
+        if not self.catalog or cached_previews(self.catalog,self.previews):return
+        self.start({'kind':'previews','catalog':str(self.cache.resolve()),'previews':str(self.previews.resolve())})
+        self.preview_process=self.process;self.preview_job=self.job;self.process=None;self.status='Ready'
 
     def set_source(self,value):
         path=Path(value).expanduser().resolve()
@@ -97,6 +111,7 @@ class BrowserState:
         pending=self.settings.with_suffix('.ini.tmp')
         with pending.open('w',encoding='utf-8') as f:settings.write(f)
         pending.replace(self.settings)
+        self.stop_previews()
         self.source=str(path);self.catalog=None;self.entries=[];self.pictures=[];self.matches={};self.selected.clear()
         self.zone_index=None;self.zone_open=False;self.worlds={}
         self.load_cache()
@@ -183,8 +198,19 @@ class BrowserState:
         self.status=f"Exporting chunk {self.zone_current+1}/{len(self.zone_manifest['chunks'])}"
 
     def poll(self):
+        if self.preview_process and self.preview_process.poll() is not None:
+            code=self.preview_process.returncode;self.preview_process=None
+            if code==0 and self.catalog:
+                cached=cached_previews(self.catalog,self.previews)
+                self.pictures=cached['images'] if cached else []
+                self.matches={e['id']:match_preview(e,self.pictures) for e in self.entries}
+            elif code!=0:self.error='Preview generation failed; maps remain available'
         if self.process:
             self.elapsed=time.monotonic()-self.started
+            if self.scan_job and time.monotonic()-self.progress_check>.25:
+                self.progress_check=time.monotonic()
+                try:self.status=json.loads(self.job.with_suffix('.progress.json').read_text(encoding='utf-8'))['message']
+                except (OSError,ValueError,KeyError):pass
             code=self.process.poll()
             if code is not None:
                 self.process=None
@@ -192,7 +218,7 @@ class BrowserState:
                     result=json.loads(self.job.with_suffix('.result.json').read_text(encoding='utf-8'))
                     self.status=result['status'];self.error=result.get('error','');self.counts=result.get('counts',{})
                     if result.get('out'):self.last_output=Path(result['out'])
-                    if self.scan_job and code==0:self.load_cache()
+                    if self.scan_job and code==0:self.load_cache();self.start_previews()
                     if self.index_job and code==0:self.set_zone_index(json.loads(Path(result['index']).read_text(encoding='utf-8')))
                 except (OSError,ValueError,KeyError):self.status='Error';self.error=f'Worker exit {code}'
                 self.index_job=False
@@ -213,6 +239,7 @@ class BrowserState:
             self.dialog=None
 
     def cancel(self):
+        self.stop_previews()
         if self.process:
             self.process.terminate()
             try:self.process.wait(timeout=3)
@@ -252,6 +279,7 @@ def launch(base=None,test_frames=0,screenshot=None):
         if not state.source and not test_frames:
             state.dialog=pfd.select_folder('CODM directory','');state.dialog_field='source'
         elif state.source and state.catalog is None and not test_frames:state.scan()
+        elif state.catalog and not test_frames:state.start_previews()
     def photo(entry,size):
         picture=state.matches.get(entry['id'])
         if picture and (state.previews/picture['file']).is_file():
@@ -389,9 +417,10 @@ def launch(base=None,test_frames=0,screenshot=None):
             try:state.export()
             except Exception as e:state.status='Error';state.error=str(e)
         imgui.end_disabled();imgui.same_line()
-        imgui.begin_disabled(state.process is None)
+        imgui.begin_disabled(state.process is None and state.preview_process is None)
         if imgui.button('Cancel',(100,34)):state.cancel()
         imgui.end_disabled();imgui.same_line();imgui.text(f'{state.status}   {int(state.elapsed)//60:02}:{int(state.elapsed)%60:02}')
+        if state.preview_process:imgui.same_line();imgui.text('Loading previews')
         if state.error:imgui.text_wrapped(state.error)
         draw_zones()
         if test_frames and frames>=test_frames:params.app_shall_exit=True

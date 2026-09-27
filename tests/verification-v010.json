@@ -1,0 +1,16 @@
+[
+  {
+    "kind": "scan",
+    "seconds": 6.563000000001921,
+    "result": {
+      "status": "Ready"
+    }
+  },
+  {
+    "kind": "previews",
+    "seconds": 13.25,
+    "result": {
+      "status": "Ready"
+    }
+  }
+]

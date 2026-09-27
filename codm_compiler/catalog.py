@@ -1,6 +1,9 @@
 """Read only UnityFS directory tables; never unpack every bundle to find a map."""
 import json
 import struct
+import os
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from collections import Counter
 
@@ -61,47 +64,72 @@ def directory(path):
         return {"engine":engine, "nodes":nodes}
 
 
-def priority(path):
+def priority(path, stat=None):
     parts = path.parts
     # Installed patch copies override the base bundle with the same filename.
     if "PersistentData" in parts:
-        if "Extract" in parts:
+        if "Extract" in parts[parts.index("PersistentData")+1:]:
             i = parts.index("Extract", parts.index("PersistentData"))
             patch = int(parts[i+1]) if parts[i+1].isdigit() else 0
-            return 2, patch, path.stat().st_mtime_ns
-        return 1, 0, path.stat().st_mtime_ns
-    return 0, 0, path.stat().st_mtime_ns
+            return 2, patch, (stat or path.stat()).st_mtime_ns
+        return 1, 0, (stat or path.stat()).st_mtime_ns
+    return 0, 0, (stat or path.stat()).st_mtime_ns
 
 
-def scan(root, destination, log=print):
+def scan(root, destination, log=print, workers=4):
     root, destination = Path(root).resolve(), Path(destination)
     if not root.is_dir():
         raise ValueError(f"Source folder does not exist: {root}")
     previous = {}
     if destination.is_file():
-        old = json.loads(destination.read_text("utf-8"))
-        previous = {b["path"]:b for b in old.get("bundles", [])}
+        try:
+            old = json.loads(destination.read_text("utf-8"))
+            previous = {b["path"]:b for b in old.get("bundles", [])}
+        except (OSError,ValueError,KeyError):pass
+    started=time.monotonic();last=started;directories=0
+    log('Discovering bundles')
     candidates = {}
-    for p in root.rglob("*"):
-        if p.suffix.lower() not in (".pak", ".assetbundle") or not p.is_file():
-            continue
-        key = p.name.lower()
-        if key not in candidates or priority(p) > priority(candidates[key]):
-            candidates[key] = p
+    pending=[root];discovery_errors=[]
+    while pending:
+        folder=pending.pop();directories+=1
+        try:
+            with os.scandir(folder) as entries:
+                for entry in entries:
+                    try:
+                        if entry.is_dir(follow_symlinks=False):
+                            if not getattr(os.path,'isjunction',lambda _:False)(entry.path):pending.append(entry.path)
+                            continue
+                        if not entry.name.lower().endswith(('.pak','.assetbundle')) or not entry.is_file():continue
+                        p=Path(entry.path);st=entry.stat();rank=priority(p,st);key=entry.name.lower()
+                        if key not in candidates or rank>candidates[key][2]:candidates[key]=(p,st,rank)
+                    except OSError as e:discovery_errors.append({'path':entry.path,'error':str(e)})
+        except OSError as e:discovery_errors.append({'path':str(folder),'error':str(e)})
+        if time.monotonic()-last>=.5:
+            log(f'Discovering: {directories} folders, {len(candidates)} bundles');last=time.monotonic()
+    discovered=time.monotonic()
+    log(f'Discovered {len(candidates)} bundles in {discovered-started:.1f}s')
     bundles, errors = [], []
-    for i, p in enumerate(sorted(candidates.values())):
-        st = p.stat()
+    errors.extend(discovery_errors)
+    def index(candidate):
+        p,st,_=candidate
         old = previous.get(str(p))
         try:
             if old and old.get("size") == st.st_size and old.get("mtime") == st.st_mtime_ns:
                 item = old
             else:
                 item = {"path":str(p), "size":st.st_size, "mtime":st.st_mtime_ns, **directory(p)}
-            bundles.append(item)
+            return item,None
         except Exception as e:
-            errors.append({"path":str(p), "error":str(e)})
-        if i % 250 == 0:
-            log(f"Indexed {i+1}/{len(candidates)} bundles")
+            return None,{"path":str(p), "error":str(e)}
+    ordered=sorted(candidates.values(),key=lambda c:c[0])
+    with ThreadPoolExecutor(max_workers=max(1,min(8,workers))) as pool:
+        # Submit bounded batches rather than retaining thousands of futures.
+        for start in range(0,len(ordered),128):
+            for item,error in pool.map(index,ordered[start:start+128]):
+                if item is not None:bundles.append(item)
+                if error is not None:errors.append(error)
+            log(f'Indexed {min(start+128,len(ordered))}/{len(ordered)} bundles')
+    log(f'Indexing completed in {time.monotonic()-discovered:.1f}s')
     maps = []
     for b in bundles:
         for n in b["nodes"]:

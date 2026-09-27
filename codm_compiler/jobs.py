@@ -14,11 +14,20 @@ def execute_job(path):
         oldout,olderr=sys.stdout,sys.stderr;sys.stdout=sys.stderr=log
         try:
             job=json.loads(path.read_text(encoding='utf-8'))
+            def progress(message):
+                print(message)
+                p=path.with_suffix('.progress.json');tmp=p.with_suffix('.tmp')
+                tmp.write_text(json.dumps({'message':message}),encoding='utf-8');tmp.replace(p)
             if job['kind']=='scan':
                 from .catalog import scan
                 from .map_library import extract_previews
-                catalog=scan(job['source'],job['catalog'])
-                extract_previews(catalog,job['previews'])
+                catalog=scan(job['source'],job['catalog'],log=progress)
+                if not job.get('defer_previews'):extract_previews(catalog,job['previews'],log=progress)
+                result={'status':'Ready'}
+            elif job['kind']=='previews':
+                from .map_library import extract_previews
+                catalog=json.loads(Path(job['catalog']).read_text(encoding='utf-8'))
+                extract_previews(catalog,job['previews'],log=progress)
                 result={'status':'Ready'}
             elif job['kind']=='zones-index':
                 from .zones import build_index,write_json
