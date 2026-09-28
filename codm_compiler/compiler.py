@@ -27,7 +27,7 @@ class CODMMesh(MeshHandler):
 
 
 class Compiler:
-    def __init__(self,catalog,output,log=print,max_texture=2048,include_inactive=False,baking='auto'):
+    def __init__(self,catalog,output,log=print,max_texture=2048,include_inactive=False,baking='auto',webp=False,webp_quality=90):
         self.source=Source(catalog,log);self.output=Path(output);self.log=log
         self.output.mkdir(parents=True,exist_ok=True)
         self.materials=Materials(self.source,self.output,max_texture)
@@ -37,6 +37,7 @@ class Compiler:
         self.mesh_cache={};self.meshes=[];self.colliders=[];self.errors=[];self.entities=[];self.nav=[]
         self.active_cache={};self.collision_errors=[];self.projectors=[];self.scene_files=[]
         self.lighting=[];self.omitted_renderers=[]
+        self.webp=bool(webp);self.webp_quality=webp_quality
 
     def components(self,go):
         return [self.source.ref(go,c.get('component',c)) for c in self.source.tree(go).get('m_Component',[])]
@@ -299,6 +300,11 @@ class Compiler:
         if not self.meshes and not allow_empty:
             (self.output/'report.json').write_text(json.dumps({'errors':self.errors,'warnings':self.source.warnings},indent=2),'utf-8')
             raise ValueError('No drawable surfaces extracted; see report.json. Select a visual scene (often *_Atlases).')
+        texture_count=0
+        if self.webp:
+            from .texture_encoding import convert_textures
+            self.log(f'Encoding textures as WebP (quality {self.webp_quality})')
+            texture_count=convert_textures(self.output,self.materials,self.webp_quality,self.lighting,self.entities,self.nav)
         conversion_seconds=time.perf_counter()-conversion_started
         sidecar_started=time.perf_counter()
         from .spawns import extract_spawns,write_spawns
@@ -322,6 +328,7 @@ class Compiler:
           'surfaceCount':len(self.meshes),'triangleCount':sum(len(m['faces']) for m in self.meshes),'colliderCount':len(self.colliders),
           'collisionComplete':not self.collision_errors,'extractionComplete':not self.errors and not self.materials.failures,'errors':self.errors,
           'textureErrors':self.materials.failures,
+          'textureEncoding':{'format':'webp' if self.webp else 'png','quality':self.webp_quality if self.webp else None,'convertedImages':texture_count},
           'visualStatus':'exported' if self.meshes else 'no_visible_meshes',
           'omittedRenderers':self.omitted_renderers,
           'baking':dict(self.materials.bake_session.stats),'timings':{'conversionSeconds':conversion_seconds,'sidecarSeconds':time.perf_counter()-sidecar_started},

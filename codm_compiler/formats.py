@@ -35,8 +35,17 @@ class GLB:
     def texture(self,path):
         path=Path(path)
         if str(path) in self.textures:return self.textures[str(path)]
-        idx=len(self.doc['images']);self.doc['images'].append({'bufferView':self.view(path.read_bytes()),'mimeType':'image/png','name':path.name})
-        result=len(self.doc['textures']);self.doc['textures'].append({'source':idx});self.textures[str(path)]=result;return result
+        suffix=path.suffix.lower()
+        if suffix not in ('.png','.webp'):raise ValueError(f'Unsupported GLB texture: {path}')
+        idx=len(self.doc['images']);self.doc['images'].append({'bufferView':self.view(path.read_bytes()),'mimeType':'image/webp' if suffix=='.webp' else 'image/png','name':path.name})
+        result=len(self.doc['textures'])
+        if suffix=='.webp':
+            self.doc['textures'].append({'extensions':{'EXT_texture_webp':{'source':idx}}})
+            for field in ('extensionsUsed','extensionsRequired'):
+                values=self.doc.setdefault(field,[])
+                if 'EXT_texture_webp' not in values:values.append('EXT_texture_webp')
+        else:self.doc['textures'].append({'source':idx})
+        self.textures[str(path)]=result;return result
 
     def material(self,m,root):
         pbr={'baseColorFactor':m.get('glbColorFactor',m['color']),'metallicFactor':m['metallic'],'roughnessFactor':m['roughness']}
@@ -54,7 +63,8 @@ class GLB:
         if any(m.get('emissive',[])):entry['emissiveFactor']=m['emissive']
         if m.get('unlit'):
             entry['extensions']={'KHR_materials_unlit':{}}
-            self.doc['extensionsUsed']=['KHR_materials_unlit']
+            values=self.doc.setdefault('extensionsUsed',[])
+            if 'KHR_materials_unlit' not in values:values.append('KHR_materials_unlit')
         self.doc['materials'].append(entry)
 
     def mesh(self,m):

@@ -27,6 +27,7 @@ class BrowserState:
         self.catalog=None;self.entries=[];self.pictures=[];self.matches={};self.selected=set();self.variant=0
         self.query='';self.category=0;self.advanced=False;self.geometry=True;self.c2m=True;self.glb=True
         self.spawns=True;self.volumes=True;self.tactical=True;self.inactive=False;self.quality=2;self.baking=0
+        self.webp=False;self.webp_quality=90
         self.status='Ready';self.error='';self.counts={};self.last_output=None;self.process=None;self.job=None
         self.dialog=None;self.dialog_field=None;self.started=0.;self.elapsed=0.;self.scan_job=False
         self.preview_process=None;self.preview_job=None;self.progress_check=0.
@@ -124,7 +125,8 @@ class BrowserState:
         self.start({'kind':'export','catalog':str(self.cache.resolve()),'out':str(out.resolve()),'scenes':self.scenes(),
                     'formats':([n for n,on in [('c2m',self.c2m),('glb',self.glb)] if on] if self.geometry else []),
                     'sidecars':[n for n,on in [('spawns',self.spawns),('volumes',self.volumes),('tactical',self.tactical)] if on],
-                    'quality':[512,1024,2048,4096,0][self.quality],'inactive':self.inactive,'baking':['auto','cpu'][self.baking]})
+                    'quality':[512,1024,2048,4096,0][self.quality],'inactive':self.inactive,'baking':['auto','cpu'][self.baking],
+                    'webp':self.webp,'webp_quality':self.webp_quality})
 
     def zone_world(self):
         if not self.catalog:return None
@@ -193,7 +195,7 @@ class BrowserState:
         self.start({'kind':'export','catalog':str(self.cache.resolve()),'out':str((self.zone_out/chunk['folder']).resolve()),
                     'scenes':[chunk['scene']],'formats':[n for n,on in [('c2m',self.c2m),('glb',self.glb)] if on],
                     'sidecars':[],'quality':[512,1024,2048,4096,0][self.quality],'inactive':self.inactive,
-                    'baking':['auto','cpu'][self.baking],'allow_empty':True})
+                    'baking':['auto','cpu'][self.baking],'webp':self.webp,'webp_quality':self.webp_quality,'allow_empty':True})
         self.status=f"Exporting chunk {self.zone_current+1}/{len(self.zone_manifest['chunks'])}"
 
     def poll(self):
@@ -336,6 +338,10 @@ def launch(base=None,test_frames=0,screenshot=None):
             checkbox('C2M','c2m');imgui.same_line();checkbox('GLB','glb')
             imgui.same_line();imgui.set_next_item_width(100);_,state.quality=imgui.combo('Textures##zone',state.quality,['512','1024','2048','4096','Original'])
             imgui.same_line();imgui.set_next_item_width(130);_,state.baking=imgui.combo('Baking##zone',state.baking,['Auto (GPU)','CPU'])
+            checkbox('WebP textures##zone','webp')
+            imgui.begin_disabled(not state.webp)
+            imgui.set_next_item_width(200);_,state.webp_quality=imgui.slider_int('Quality##zone',state.webp_quality,0,100)
+            imgui.end_disabled()
             chunks=[]
             if state.zone_cells and state.zone_layers:chunks=state.zone_plan()['chunks']
             missing=sum(c['status']!='available' for c in chunks)
@@ -407,6 +413,10 @@ def launch(base=None,test_frames=0,screenshot=None):
         checkbox('Inactive objects','inactive')
         imgui.set_next_item_width(160);_,state.quality=imgui.combo('Textures',state.quality,['512','1024','2048','4096','Original'])
         imgui.set_next_item_width(160);_,state.baking=imgui.combo('Baking',state.baking,['Auto (GPU)','CPU'])
+        checkbox('WebP textures only','webp')
+        imgui.begin_disabled(not state.webp)
+        imgui.set_next_item_width(160);_,state.webp_quality=imgui.slider_int('WebP quality',state.webp_quality,0,100)
+        imgui.end_disabled()
         imgui.end_disabled();imgui.separator()
         for name,value in state.counts.items():imgui.text(f'{name.title()}  {value:,}')
         imgui.end_child();imgui.separator()

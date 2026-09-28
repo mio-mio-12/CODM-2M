@@ -25,6 +25,7 @@ def main():
     export.add_argument('--out',required=True);export.add_argument('--format',choices=['both','c2m','glb'],default='both')
     export.add_argument('--texture-size',type=int,choices=[0,512,1024,2048,4096],default=2048);export.add_argument('--include-inactive',action='store_true')
     export.add_argument('--baking',choices=['auto','cpu'],default='auto')
+    export.add_argument('--webp',action='store_true');export.add_argument('--webp-quality',type=int,default=90)
     for option in ('spawns','volumes','tactical'):export.add_argument('--no-'+option,action='store_true')
     check=sub.add_parser('inspect');check.add_argument('file')
     sp=sub.add_parser('spawns',help='Extract spawn points without converting map geometry')
@@ -48,7 +49,7 @@ def main():
             out=Path(args.out)
             if out.exists() and any(out.iterdir()):raise ValueError('Choose a new or empty output folder; existing exports are never overwritten')
             result=Compiler(json.loads(Path(args.catalog).read_text('utf-8')),out,max_texture=args.texture_size,
-                            include_inactive=args.include_inactive,baking=args.baking).run(args.scene,('c2m','glb') if args.format=='both' else (args.format,),
+                            include_inactive=args.include_inactive,baking=args.baking,webp=args.webp,webp_quality=args.webp_quality).run(args.scene,('c2m','glb') if args.format=='both' else (args.format,),
                             [name for name in ('spawns','volumes','tactical') if not getattr(args,'no_'+name)])
             return 2 if not result['extractionComplete'] or not result.get('spawnComplete',True) or not result.get('gameplayComplete',True) else 0
         elif args.command=='spawns':

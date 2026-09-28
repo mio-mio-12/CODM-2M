@@ -41,7 +41,8 @@ def execute_job(path):
                 options=job['sidecars'];summary={}
                 if job['formats']:
                     from .compiler import Compiler
-                    report=Compiler(catalog,out,max_texture=job['quality'],include_inactive=job.get('inactive',False),baking=job.get('baking','auto')).run(job['scenes'],job['formats'],options,allow_empty=job.get('allow_empty',False))
+                    report=Compiler(catalog,out,max_texture=job['quality'],include_inactive=job.get('inactive',False),baking=job.get('baking','auto'),
+                                    webp=job.get('webp',False),webp_quality=job.get('webp_quality',90)).run(job['scenes'],job['formats'],options,allow_empty=job.get('allow_empty',False))
                     summary={'triangles':report['triangleCount'],'colliders':report['colliderCount'],'spawns':report['spawnCount'],
                              'volumes':report['gameplaySidecars'].get('volumes',{}).get('count',0),
                              'tactical':report['gameplaySidecars'].get('tactical',{}).get('count',0)}
